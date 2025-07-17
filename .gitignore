@@ -31,6 +31,9 @@ dist
 
 bundle
 
+# docker custom files
+docker-compose.yml
+
 # Test report files
 junit.xml
 packages/*/coverage/
