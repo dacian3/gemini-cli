@@ -2,7 +2,6 @@ services:
   gemini-cli:
     image: gemini-cli-custom:latest
     container_name: gemini-cli
-    hostname: gemini-cli
     network_mode: service:nord-gcli
     build: .                      # build image from Dockerfile in current directory
     stdin_open: true              # Keeps STDIN open for input (-i)
