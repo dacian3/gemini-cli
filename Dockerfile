@@ -26,7 +26,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
   psmisc \
   lsof \
   socat \
-  nvim \
+  neovim \
   tree \
   ca-certificates \
   && apt-get clean \
