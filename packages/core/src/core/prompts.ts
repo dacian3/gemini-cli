@@ -247,25 +247,8 @@ ${(function () {
   }
   return '';
 })()}
-${(function () {
-  if (config.getIdeMode()) {
-    const activeFile = ideContext.getActiveFileContext();
-    if (activeFile?.filePath) {
-      let prompt = `
-# IDE Mode
-You are running in IDE mode. The user has the following file open:
-- Path: ${activeFile.filePath}`;
-      if (activeFile.cursor) {
-        prompt += `
-- Cursor Position: Line ${activeFile.cursor.line}, Character ${activeFile.cursor.character}`;
-      }
-      prompt += `
-Provide contextually relevant assistance for this file.`;
-      return prompt;
-    }
-  }
-  return '';
-})()}
+
+
 # Examples (Illustrating Tone and Workflow)
 <example>
 user: 1 + 2
