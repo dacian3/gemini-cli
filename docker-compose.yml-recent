@@ -1,0 +1,111 @@
+services:
+  gemini-cli:
+    image: gemini-cli-custom:latest
+    container_name: gemini-cli
+    network_mode: service:nord-gcli
+    build: /home/samtheman/projects/gemini-cli/Dockerfile                      # build image from Dockerfile in current>    stdin_open: true              # Keeps STDIN open for input (-i)
+    tty: true                     # Allocates a pseudo-TTY (-t)
+    environment:
+      - GEMINI_API_KEY=/run/secrets/GEMINI_API_KEY
+    volumes:
+      - /mnt/gemini-cli/workspace:/app/workspace
+      - /mnt/gemini-cli/inbox:/app/inbox
+      - /mnt/gemini-cli/memory:/app/memory
+      - /home/samtheman/projects/gemini-cli/container-files/etc:/etc
+      - gemini_node_history:/home/node/.bash_history
+      - gemini_bash_history:/root/.bash_history
+    depends_on:
+      - nord-gcli
+    secrets:
+      - GEMINI_API_KEY
+    restart: unless-stopped
+
+  nord-gcli:
+    image: ghcr.io/bubuntux/nordlynx
+    hostname: nord-gcli
+    container_name: nord-gcli
+    cap_add:
+      - NET_ADMIN
+      - NET_RAW
+      - SYS_MODULE                            
+    environment:
+      - TECHNOLOGY=NordLynx
+      - NET_LOCAL=192.168.50.0/24
+      - TZ=Australia/Melbourne
+      - PRIVATE_KEY_FILE=/run/secrets/PRIVATE_KEY
+    sysctls:
+      - net.ipv6.conf.all.disable_ipv6=1 # disables ipv6 
+    networks:
+      - proxy
+    devices:
+      - /dev/net/tun
+    secrets:
+      - PRIVATE_KEY
+    restart: always
+
+  portainer:
+    image: portainer/portainer-ce:latest
+    container_name: portainer
+    depends_on:
+      - traefik
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - /docker/container-files/portainer/data:/data
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.portainer.rule=Host(`portainer.yggdrasil.network`)
+      - traefik.http.routers.portainer.entrypoints=websecure
+      - traefik.http.routers.portainer.tls=true
+      - traefik.http.routers.portainer.tls.certresolver=cloudflare
+      - traefik.http.services.portainer.loadbalancer.server.port=9000 
+    networks:
+      - proxy
+    restart: unless-stopped
+
+  traefik:
+    image: traefik:v3.4
+    container_name: traefik
+      # depends_on:
+      #- nord
+    networks:
+      - proxy
+    ports:
+      - 80:80
+      - 443:443
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - ./traefik.yml:/etc/traefik/traefik.yml:ro
+      - /var/run/tailscale/tailscaled.sock:/var/run/tailscale/tailscaled.sock:ro
+      - ./acme.json:/acme.json
+      - ./traefik-users.txt:/etc/traefik/traefik-users.txt:ro
+    environment:
+      - CLOUDFLARE_DNS_API_TOKEN_PATH=/run/secrets/CLOUDFLARE_DNS_API_TOKEN
+    secrets:
+      - CLOUDFLARE_DNS_API_TOKEN
+    restart: unless-stopped
+    labels:
+      - traefik.http.middlewares.dashboard-auth.basicauth.usersFile='/etc/traefik/traefik-users.txt'
+      - traefik.http.routers.dashboard.rule=Host(`traefik.yggdrasil.network`)
+      - traefik.http.routers.dashboard.entrypoints=websecure
+      - traefik.http.routers.dashboard.tls.certresolver=cloudflare
+      - traefik.http.routers.dashboard.service=api@internal
+      - traefik.http.routers.dashboard.middlewares=dashboard-auth
+
+
+networks:
+  proxy:
+    name: proxy
+
+volumes:
+  gemini_node_history:
+  gemini_bash_history:
+
+secrets:
+  PRIVATE_KEY:
+    file: /home/samtheman/.docker/secrets/PRIVATE_KEY
+  GEMINI_API_KEY:
+    file: /home/samtheman/.docker/secrets/GEMINI_API_KEY
+  CLOUDFLARE_DNS_API_TOKEN:
+    file: /home/samtheman/.docker/secrets/CLOUDFLARE_DNS_API_TOKEN
+      #cloudflare_tunnel_token:
+      #file: /home/samtheman/.docker/secrets/cloudflare_tunnel_token
