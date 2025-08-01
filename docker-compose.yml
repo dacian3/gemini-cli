@@ -1,22 +1,206 @@
 services:
+  bazarr-4k:
+    image: lscr.io/linuxserver/bazarr:latest
+    container_name: bazarr-4k
+    depends_on:
+      - traefik
+    environment:
+      - PUID=1000
+      - PGID=1000
+      - TZ=Australia/Melbourne
+    volumes:
+      - /docker/container-files/bazarr-4k/config:/config
+      - /mnt/jdrive1tb:/mnt/jdrive1tb
+      - /mnt/acorn99gb:/mnt/acorn99gb
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.bazarr-4k.rule=Host(`bazarr-4k.yggdrasil.network`)
+      - traefik.http.routers.bazarr-4k.entrypoints=websecure
+      - traefik.http.routers.bazarr-4k.tls=true
+      - traefik.http.routers.bazarr-4k.tls.certresolver=cloudflare
+      - traefik.http.services.bazarr-4k.loadbalancer.server.port=6767 
+    networks:
+      - proxy
+    restart: unless-stopped
+
+  bazarr-hd:
+    image: lscr.io/linuxserver/bazarr:latest
+    container_name: bazarr-hd
+    depends_on:
+      - traefik
+    environment:
+      - PUID=1000
+      - PGID=1000
+      - TZ=Australia/Melbourne
+    volumes:
+      - /docker/container-files/bazarr-hd/config:/config
+      - /mnt/jdrive1tb:/mnt/jdrive1tb
+      - /mnt/acorn99gb:/mnt/acorn99gb
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.bazarr-hd.rule=Host(`bazarr-hd.yggdrasil.network`)
+      - traefik.http.routers.bazarr-hd.entrypoints=websecure
+      - traefik.http.routers.bazarr-hd.tls=true
+      - traefik.http.routers.bazarr-hd.tls.certresolver=cloudflare
+      - traefik.http.services.bazarr-hd.loadbalancer.server.port=6767 
+    networks:
+      - proxy
+    restart: unless-stopped
+
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    container_name: cloudflared-tunnel
+    environment:
+    - TUNNEL_TOKEN=${TUNNEL_TOKEN}
+    volumes:
+    - /docker/container-files/cloudflared:/home/nonroot/.cloudflared
+    networks:
+    - proxy
+    #secrets:
+    #- cloudflare_tunnel_token
+    restart: unless-stopped
+
+
+  firefox:
+    image: lscr.io/linuxserver/firefox:latest
+    container_name: firefox
+    depends_on:
+      - traefik
+    environment:
+      - PUID=1000
+      - PGID=1000
+      - TZ=Australia/Melbourne
+    volumes:
+      - /docker/temp/container-files/firefox/config:/config
+    shm_size: "1gb"
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.firefox.rule=Host(`firefox.yggdrasil.network`)
+      - traefik.http.routers.firefox.entrypoints=websecure
+      - traefik.http.routers.firefox.tls=true
+      - traefik.http.routers.firefox.tls.certresolver=cloudflare
+      - traefik.http.services.firefox.loadbalancer.server.port=3000 
+    networks:
+      - proxy
+    restart: unless-stopped
+
+  firefox-vpn:
+    image: lscr.io/linuxserver/firefox:latest
+    container_name: firefox-vpn
+    network_mode: service:nord
+    depends_on:
+      - nord
+    environment:
+      - PUID=1000
+      - PGID=1000
+      - TZ=Australia/Melbourne
+    volumes:
+      - /docker/temp/container-files/firefox-vpn/config:/config
+    shm_size: "1gb"
+    restart: unless-stopped
+
   gemini-cli:
     image: gemini-cli-custom:latest
     container_name: gemini-cli
     network_mode: service:nord-gcli
-    build: .                      # build image from Dockerfile in current directory
-    stdin_open: true              # Keeps STDIN open for input (-i)
+    build: /home/samtheman/projects/gemini-cli/Dockerfile                      # build image from Dockerfile in current>    stdin_open: true              # Keeps STDIN open for input (-i)
     tty: true                     # Allocates a pseudo-TTY (-t)
     environment:
-      - GEMINI_API_KEY=${GEMINI_API_KEY}  
+      - GEMINI_API_KEY=/run/secrets/GEMINI_API_KEY
     volumes:
       - /mnt/gemini-cli/workspace:/app/workspace
       - /mnt/gemini-cli/inbox:/app/inbox
-      - /mnt/gemini-cli/memory:/app/memory  
+      - /mnt/gemini-cli/memory:/app/memory
+      - /docker/container-files/gemini-cli/etc:/etc
       - gemini_node_history:/home/node/.bash_history
       - gemini_bash_history:/root/.bash_history
     depends_on:
       - nord-gcli
+    secrets:
+      - GEMINI_API_KEY
     restart: unless-stopped
+
+  heimdall:
+    image: lscr.io/linuxserver/heimdall:latest
+    container_name: heimdall
+    depends_on:
+      - traefik
+    environment:
+      - PUID=1000
+      - PGID=1000
+      - TZ=Australia/Melbourne
+    volumes:
+      - /docker/container-files/heimdall/config:/config
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.heimdall.rule=Host(`heimdall.yggdrasil.network`)
+      - traefik.http.routers.heimdall.entrypoints=websecure
+      - traefik.http.routers.heimdall.tls=true
+      - traefik.http.routers.heimdall.tls.certresolver=cloudflare
+      - traefik.http.services.heimdall.loadbalancer.server.port=80 
+    networks:
+      - proxy
+    restart: unless-stopped
+
+  nord:
+    image: ghcr.io/bubuntux/nordlynx
+    hostname: nord
+    container_name: nord
+    depends_on:
+      - traefik
+    cap_add:
+      - NET_ADMIN                             # required
+      - NET_RAW
+      - SYS_MODULE                            # maybe
+    environment:
+      - QUERY=filters\[servers_groups\]\[identifier\]=legacy_p2p
+      - NET_LOCAL=192.168.50.0/24
+      - TZ=Australia/Sydney
+      - PRIVATE_KEY_FILE=/run/secrets/PRIVATE_KEY
+    sysctls:
+      - net.ipv6.conf.all.disable_ipv6=1   # disable ipv6; recommended if using ipv4 only
+    ports:
+      - 6881:6881         #qbit torrenting
+      - 6881:6881/udp     #qbit torrenting udp
+      - 8081:8081         #qbit ui
+      - 8080:8080         #sabnzbd ui
+      - 3000:3000         #firefox-vpn
+    labels:
+      - traefik.enable=true
+      
+      # Qbit Router       
+      - traefik.http.routers.qbit.rule=Host(`qbit.yggdrasil.network`)
+      - traefik.http.routers.qbit.entrypoints=websecure       
+      - traefik.http.routers.qbit.tls=true
+      - traefik.http.routers.qbit.tls.certresolver=cloudflare       
+      - traefik.http.routers.qbit.service=qbit
+      # Qbit Service
+      - traefik.http.services.qbit.loadbalancer.server.port=8081        
+
+      # Sabnzbd Router
+      - traefik.http.routers.sabnzbd.rule=Host(`sabnzbd.yggdrasil.network`)
+      - traefik.http.routers.sabnzbd.entrypoints=websecure
+      - traefik.http.routers.sabnzbd.tls=true
+      - traefik.http.routers.sabnzbd.tls.certresolver=cloudflare
+      - traefik.http.routers.sabnzbd.service=sabnzbd
+      # Sabnzbd Service
+      - traefik.http.services.sabnzbd.loadbalancer.server.port=8080
+
+      #firefox-vpn router
+      - traefik.http.routers.firefox-vpn.rule=Host(`firefox-vpn.yggdrasil.network`)
+      - traefik.http.routers.firefox-vpn.entrypoints=websecure
+      - traefik.http.routers.firefox-vpn.tls=true
+      - traefik.http.routers.firefox-vpn.tls.certresolver=cloudflare
+      - traefik.http.services.firefox-vpn.loadbalancer.server.port=3000
+      # firefox-vpn service
+      - traefik.http.routers.firefox-vpn.service=firefox-vpn
+    secrets:
+      - PRIVATE_KEY
+    networks:
+      - proxy 
+    devices:
+      - /dev/net/tun
+    restart: always
 
   nord-gcli:
     image: ghcr.io/bubuntux/nordlynx
@@ -30,19 +214,353 @@ services:
       - TECHNOLOGY=NordLynx
       - NET_LOCAL=192.168.50.0/24
       - TZ=Australia/Melbourne
-      - PRIVATE_KEY=${NORD_PRIVATE_KEY}
+      - PRIVATE_KEY_FILE=/run/secrets/PRIVATE_KEY
     sysctls:
       - net.ipv6.conf.all.disable_ipv6=1 # disables ipv6 
     networks:
       - proxy
     devices:
       - /dev/net/tun
+    secrets:
+      - PRIVATE_KEY
     restart: always
+
+  notifiarr:
+    container_name: notifiarr
+    depends_on:
+      - traefik
+    hostname: notifiarr
+    image: golift/notifiarr
+    volumes:
+      - /docker/container-files/notifiarr/config:/config
+      - /etc/machine-id:/etc/machine-id
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.notifiarr.rule=Host(`notifiarr.yggdrasil.network`)
+      - traefik.http.routers.notifiarr.entrypoints=websecure
+      - traefik.http.routers.notifiarr.tls=true
+      - traefik.http.routers.notifiarr.tls.certresolver=cloudflare
+      - traefik.http.services.notifiarr.loadbalancer.server.port=5454 
+    networks:
+      - proxy
+    restart: unless-stopped
+      #backup
+  overseerr:
+    image: lscr.io/linuxserver/overseerr:latest
+    container_name: overseerr
+    depends_on:
+      - traefik
+    environment:
+      - PUID=1000
+      - PGID=1000
+      - TZ=Australia/Melbourne
+    volumes:
+      - /docker/container-files/overseerr/config:/config
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.overseerr.rule=Host(`overseerr.yggdrasil.network`)
+      - traefik.http.routers.overseerr.entrypoints=websecure
+      - traefik.http.routers.overseerr.tls=true
+      - traefik.http.routers.overseerr.tls.certresolver=cloudflare
+      - traefik.http.services.overseerr.loadbalancer.server.port=5055 
+    networks:
+      - proxy
+    restart: unless-stopped
+
+      #plex:
+      #image: lscr.io/linuxserver/plex:latest
+      #container_name: plex
+      #depends_on:
+      #- traefik
+      #environment:
+      #- PUID=1000
+      #- PGID=1000
+      #- TZ=Australia/Melbourne
+      #- VERSION=docker
+      #volumes:
+      #- /docker/container-files/plex/config:/config
+        #- /mnt/rhel-drives/acorn4tb/data/media:/mnt/acorn4tb/data/media
+        #- /mnt/rhel-drives/acorn1tb/data/media:/mnt/acorn1tb/data/media
+        #- /mnt/rhel-drives/poo500gb/data/media:/mnt/poo500gb/data/media
+        #- /mnt/rhel-drives/poo750gb/data/media:/mnt/poo750gb/data/media
+        #- /mnt/acorn99gb/data/media:/mnt/acorn99gb/data/media
+        #- /mnt/jdrive1tb/data/media:/mnt/jdrive1tb/data/media
+        #- /tmp/plex:/transcode
+        #devices:
+        #- /dev/dri:/dev/dri
+        #labels:
+        #- traefik.enable=true
+        #- traefik.http.routers.plex.rule=Host(`plex.yggdrasil.network`)
+        #- traefik.http.routers.plex.entrypoints=websecure
+        #- traefik.http.routers.plex.tls=true
+        #- traefik.http.routers.plex.tls.certresolver=cloudflare
+        #- traefik.http.services.plex.loadbalancer.server.port=32400 
+        #networks:
+        #- proxy
+        #restart: unless-stopped
+
+  plex:
+    image: lscr.io/linuxserver/plex:latest
+    container_name: plex
+      #depends_on:
+      #- traefik
+    environment:
+      - PUID=1000
+      - PGID=1000
+      - TZ=Australia/Melbourne
+      - VERSION=docker
+    volumes:
+      - /docker/container-files/plex/config:/config
+        #- /mnt/rhel-drives/acorn4tb/data/media:/mnt/acorn4tb/data/media
+        #- /mnt/rhel-drives/acorn1tb/data/media:/mnt/acorn1tb/data/media
+        #- /mnt/rhel-drives/poo500gb/data/media:/mnt/poo500gb/data/media
+        #- /mnt/rhel-drives/poo750gb/data/media:/mnt/poo750gb/data/media
+      - /mnt/acorn99gb/data/media:/mnt/acorn99gb/data/media
+      - /mnt/jdrive1tb/data/media:/mnt/jdrive1tb/data/media
+      - /tmp/plex:/transcode
+    devices:
+      - /dev/dri:/dev/dri
+        #labels:
+        #- traefik.enable=true
+        #- traefik.http.routers.plex.rule=Host(`plex.yggdrasil.network`)
+        #- traefik.http.routers.plex.entrypoints=websecure
+        #- traefik.http.routers.plex.tls=true
+        #- traefik.http.routers.plex.tls.certresolver=cloudflare
+        #- traefik.http.services.plex.loadbalancer.server.port=32400 
+    network_mode: host
+    restart: unless-stopped
+  
+  portainer:
+    image: portainer/portainer-ce:latest
+    container_name: portainer
+    depends_on:
+      - traefik
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - /docker/container-files/portainer/data:/data
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.portainer.rule=Host(`portainer.yggdrasil.network`)
+      - traefik.http.routers.portainer.entrypoints=websecure
+      - traefik.http.routers.portainer.tls=true
+      - traefik.http.routers.portainer.tls.certresolver=cloudflare
+      - traefik.http.services.portainer.loadbalancer.server.port=9000 
+    networks:
+      - proxy
+    restart: unless-stopped
+
+  prowlarr:
+    image: lscr.io/linuxserver/prowlarr:latest
+    container_name: prowlarr
+    depends_on:
+      - traefik
+    environment:
+      - PUID=1000
+      - PGID=1000
+      - TZ=Australia/Melbourne
+    volumes:
+      - /docker/container-files/prowlarr/config:/config
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.prowlarr.rule=Host(`prowlarr.yggdrasil.network`)
+      - traefik.http.routers.prowlarr.entrypoints=websecure
+      - traefik.http.routers.prowlarr.tls=true
+      - traefik.http.routers.prowlarr.tls.certresolver=cloudflare
+      - traefik.http.services.prowlarr.loadbalancer.server.port=9696 
+    networks:
+      - proxy
+    restart: unless-stopped
+
+  qbit:
+    image: lscr.io/linuxserver/qbittorrent:latest
+    container_name: qbit
+    network_mode: service:nord
+    depends_on:
+      - nord
+    environment:
+      - PUID=1000
+      - PGID=1000
+      - TZ=Australia/Melbourne
+      - WEBUI_PORT=8081
+      - TORRENTING_PORT=6881
+    volumes:
+      - /docker/container-files/qbit/config:/config
+      - /mnt/acorn99gb:/mnt/acorn99gb
+      - /mnt/jdrive1tb:/mnt/jdrive1tb
+    restart: unless-stopped
+
+  radarr-4k:
+    image: lscr.io/linuxserver/radarr:latest
+    container_name: radarr-4k
+    depends_on:
+      - traefik
+    environment:
+      - PUID=1000
+      - PGID=1000
+      - TZ=Australia/Melbourne
+    volumes:
+      - /docker/container-files/radarr-4k/config:/config
+      - /mnt/jdrive1tb:/mnt/jdrive1tb
+      - /mnt/acorn99gb:/mnt/acorn99gb
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.radarr-4k.rule=Host(`radarr-4k.yggdrasil.network`)
+      - traefik.http.routers.radarr-4k.entrypoints=websecure
+      - traefik.http.routers.radarr-4k.tls=true
+      - traefik.http.routers.radarr-4k.tls.certresolver=cloudflare
+      - traefik.http.services.radarr-4k.loadbalancer.server.port=7878 
+    networks:
+      - proxy
+    restart: unless-stopped
+
+  radarr-hd:
+    image: lscr.io/linuxserver/radarr:latest
+    container_name: radarr-hd
+    depends_on:
+      - traefik
+    environment:
+      - PUID=1000
+      - PGID=1000
+      - TZ=Australia/Melbourne
+    volumes:
+      - /docker/container-files/radarr-hd/config:/config
+      - /mnt/jdrive1tb:/mnt/jdrive1tb
+      - /mnt/acorn99gb:/mnt/acorn99gb
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.radarr-hd.rule=Host(`radarr-hd.yggdrasil.network`)
+      - traefik.http.routers.radarr-hd.entrypoints=websecure
+      - traefik.http.routers.radarr-hd.tls=true
+      - traefik.http.routers.radarr-hd.tls.certresolver=cloudflare
+      - traefik.http.services.radarr-hd.loadbalancer.server.port=7878 
+    networks:
+      - proxy
+    restart: unless-stopped
+
+  sabnzbd:
+    image: lscr.io/linuxserver/sabnzbd:latest
+    container_name: sabnzbd
+    network_mode: service:nord
+    depends_on:
+      - nord
+    environment:
+      - PUID=1000
+      - PGID=1000
+      - TZ=Australia/Melbourne
+    volumes:
+      - /docker/container-files/sabnzbd/config:/config
+      - /mnt/acorn99gb:/mnt/acorn99gb
+      - /mnt/jdrive1tb:/mnt/jdrive1tb
+    restart: unless-stopped
+
+  sonarr-4k:
+    image: lscr.io/linuxserver/sonarr:latest
+    container_name: sonarr-4k
+    depends_on:
+      - traefik
+    environment:
+      - PUID=1000
+      - PGID=1000
+      - TZ=Australia/Melbourne
+    volumes:
+      - /docker/container-files/sonarr-4k/config:/config
+      - /mnt/jdrive1tb:/mnt/jdrive1tb
+      - /mnt/acorn99gb:/mnt/acorn99gb
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.sonarr-4k.rule=Host(`sonarr-4k.yggdrasil.network`)
+      - traefik.http.routers.sonarr-4k.entrypoints=websecure
+      - traefik.http.routers.sonarr-4k.tls=true
+      - traefik.http.routers.sonarr-4k.tls.certresolver=cloudflare
+      - traefik.http.services.sonarr-4k.loadbalancer.server.port=8989 
+    networks:
+      - proxy
+    restart: unless-stopped
+
+  sonarr-hd:
+    image: lscr.io/linuxserver/sonarr:latest
+    container_name: sonarr-hd
+    depends_on:
+      - traefik
+    environment:
+      - PUID=1000
+      - PGID=1000
+      - TZ=Australia/Melbourne
+    volumes:
+      - /docker/container-files/sonarr-hd/config:/config
+      - /mnt/jdrive1tb:/mnt/jdrive1tb
+      - /mnt/acorn99gb:/mnt/acorn99gb
+      - /mnt/rheldrives:/mnt/rheldrives
+    labels:  
+      - traefik.enable=true
+      - traefik.http.routers.sonarr-hd.rule=Host(`sonarr-hd.yggdrasil.network`)
+      - traefik.http.routers.sonarr-hd.entrypoints=websecure
+      - traefik.http.routers.sonarr-hd.tls=true
+      - traefik.http.routers.sonarr-hd.tls.certresolver=cloudflare
+      - traefik.http.services.sonarr-hd.loadbalancer.server.port=8989 
+    networks:
+      - proxy
+    restart: unless-stopped
+
+  traefik:
+    image: traefik:v3.4
+    container_name: traefik
+      # depends_on:
+      #- nord
+    networks:
+      - proxy
+    ports:
+      - 80:80
+      - 443:443
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - ./traefik.yml:/etc/traefik/traefik.yml:ro
+      - /var/run/tailscale/tailscaled.sock:/var/run/tailscale/tailscaled.sock:ro
+      - ./acme.json:/acme.json
+      - ./traefik-users.txt:/etc/traefik/traefik-users.txt:ro
+    environment:
+      - CLOUDFLARE_DNS_API_TOKEN_PATH=/run/secrets/CLOUDFLARE_DNS_API_TOKEN
+    secrets:
+      - CLOUDFLARE_DNS_API_TOKEN
+    restart: unless-stopped
+    labels:
+      - traefik.http.middlewares.dashboard-auth.basicauth.usersFile='/etc/traefik/traefik-users.txt'
+      - traefik.http.routers.dashboard.rule=Host(`traefik.yggdrasil.network`)
+      - traefik.http.routers.dashboard.entrypoints=websecure
+      - traefik.http.routers.dashboard.tls.certresolver=cloudflare
+      - traefik.http.routers.dashboard.service=api@internal
+      - traefik.http.routers.dashboard.middlewares=dashboard-auth
+
+  whoami:
+    image: traefik/whoami
+    container_name: whoami
+    depends_on:
+      - traefik
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.whoami.rule=Host(`whoami.yggdrasil.network`)
+      - traefik.http.routers.whoami.entrypoints=websecure
+      - traefik.http.routers.whoami.tls=true
+      - traefik.http.routers.whoami.tls.certresolver=cloudflare
+      - traefik.http.routers.whoami.tls.domains[0].main=yggdrasil.network
+      - traefik.http.routers.whoami.tls.domains[0].sans=*.yggdrasil.network
+    networks:
+      - proxy
 
 networks:
   proxy:
-    name: gcli-proxy
-  
+    name: proxy
+
 volumes:
   gemini_node_history:
   gemini_bash_history:
+
+secrets:
+  PRIVATE_KEY:
+    file: /home/samtheman/.docker/secrets/PRIVATE_KEY
+  GEMINI_API_KEY:
+    file: /home/samtheman/.docker/secrets/GEMINI_API_KEY
+  CLOUDFLARE_DNS_API_TOKEN:
+    file: /home/samtheman/.docker/secrets/CLOUDFLARE_DNS_API_TOKEN
+      #cloudflare_tunnel_token:
+      #file: /home/samtheman/.docker/secrets/cloudflare_tunnel_token

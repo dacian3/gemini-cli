@@ -1,0 +1,48 @@
+services:
+  gemini-cli:
+    image: gemini-cli-custom:latest
+    container_name: gemini-cli
+    network_mode: service:nord-gcli
+    build: .                      # build image from Dockerfile in current directory
+    stdin_open: true              # Keeps STDIN open for input (-i)
+    tty: true                     # Allocates a pseudo-TTY (-t)
+    environment:
+      - GEMINI_API_KEY=${GEMINI_API_KEY}  
+    volumes:
+      - /mnt/gemini-cli/workspace:/app/workspace
+      - /mnt/gemini-cli/inbox:/app/inbox
+      - /mnt/gemini-cli/memory:/app/memory  
+      - gemini_node_history:/home/node/.bash_history
+      - gemini_bash_history:/root/.bash_history
+    depends_on:
+      - nord-gcli
+    restart: unless-stopped
+
+  nord-gcli:
+    image: ghcr.io/bubuntux/nordlynx
+    hostname: nord-gcli
+    container_name: nord-gcli
+    cap_add:
+      - NET_ADMIN
+      - NET_RAW
+      - SYS_MODULE                            
+    environment:
+      - TECHNOLOGY=NordLynx
+      - NET_LOCAL=192.168.50.0/24
+      - TZ=Australia/Melbourne
+      - PRIVATE_KEY=${NORD_PRIVATE_KEY}
+    sysctls:
+      - net.ipv6.conf.all.disable_ipv6=1 # disables ipv6 
+    networks:
+      - proxy
+    devices:
+      - /dev/net/tun
+    restart: always
+
+networks:
+  proxy:
+    name: gcli-proxy
+  
+volumes:
+  gemini_node_history:
+  gemini_bash_history:
