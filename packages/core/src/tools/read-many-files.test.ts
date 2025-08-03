@@ -14,6 +14,8 @@ import fs from 'fs'; // Actual fs for setup
 import os from 'os';
 import { Config } from '../config/config.js';
 import { WorkspaceContext } from '../utils/workspaceContext.js';
+import { Buffer } from 'buffer';
+import { PartListUnion } from '@google/genai';
 
 vi.mock('mime-types', () => {
   const lookup = (filename: string) => {
@@ -203,15 +205,15 @@ describe('ReadManyFilesTool', () => {
       it('should skip individual files that exceed max_file_size', async () => {
         // ARRANGE
         const mockConfigWithLimit = {
-          ...tool['config'], // Inherit base config
+          ...tool['config'],
           max_file_size: '5MB',
           max_total_read_size: '50MB',
         } as unknown as Config;
         const limitedTool = new ReadManyFilesTool(mockConfigWithLimit);
 
-        // Use the existing test helper to create files
         createFile('small.txt', 'small file content');
-        createFile('large.log', Buffer.alloc(10 * 1024 * 1024)); // 10MB file
+        // FIX: Use createBinaryFile for Buffer data
+        createBinaryFile('large.log', Buffer.alloc(10 * 1024 * 1024)); // 10MB file
 
         const params = { paths: ['*'] };
 
@@ -222,18 +224,30 @@ describe('ReadManyFilesTool', () => {
         );
 
         // ASSERT
-        const content = result.llmContent as string[];
+        const content = result.llmContent as PartListUnion;
         const expectedSmallFilePath = path.join(tempRootDir, 'small.txt');
 
-        // Check that the small file was read
-        expect(content.some((c) => c.includes('small file content'))).toBe(
-          true,
-        );
-        expect(content.some((c) => c.includes(expectedSmallFilePath))).toBe(
-          true,
-        );
+        // FIX: Check that content is an array before using array methods
+        if (Array.isArray(content)) {
+          // Check that the small file was read
+          expect(
+            content.some(
+              (c) => typeof c === 'string' && c.includes('small file content'),
+            ),
+          ).toBe(true);
 
-        // Check that the large file was skipped and noted
+          // Also check that the file path separator for the small file is present
+          expect(
+            content.some(
+              (c) => typeof c === 'string' && c.includes(expectedSmallFilePath),
+            ),
+          ).toBe(true);
+        } else {
+          // Fail the test if the content is not an array as expected
+          expect.fail('Expected llmContent to be an array of parts.');
+        }
+
+        // Check that the large file was skipped and noted in the user-facing display
         expect(result.returnDisplay).toContain('Skipped 1 item(s)');
         expect(result.returnDisplay).toContain('large.log');
         expect(result.returnDisplay).toContain('Exceeds 5MB limit');
@@ -248,10 +262,10 @@ describe('ReadManyFilesTool', () => {
         } as unknown as Config;
         const limitedTool = new ReadManyFilesTool(mockConfigWithLimit);
 
-        // Create three 15MB files. Individually they are OK, but their total is 45MB.
-        createFile('file1.dat', Buffer.alloc(15 * 1024 * 1024));
-        createFile('file2.dat', Buffer.alloc(15 * 1024 * 1024));
-        createFile('file3.dat', Buffer.alloc(15 * 1024 * 1024));
+        // FIX: Use createBinaryFile for Buffer data
+        createBinaryFile('file1.dat', Buffer.alloc(15 * 1024 * 1024));
+        createBinaryFile('file2.dat', Buffer.alloc(15 * 1024 * 1024));
+        createBinaryFile('file3.dat', Buffer.alloc(15 * 1024 * 1024));
 
         const params = { paths: ['*.dat'] };
 

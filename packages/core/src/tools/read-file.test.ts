@@ -4,6 +4,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+import { Buffer } from 'buffer';
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { ReadFileTool, ReadFileToolParams } from './read-file.js';
 import path from 'path';
@@ -296,6 +297,79 @@ describe('ReadFileTool', () => {
       expect(error).toContain(tempRootDir);
     });
   });
+
+  // start of code-trinity
+  describe('with max_file_size limit', () => {
+    it('should return an error when the file exceeds the max_file_size', async () => {
+      // ARRANGE
+      const mockConfigWithLimit = {
+        ...tool['config'],
+        max_file_size: '10MB',
+      } as unknown as Config;
+      const limitedTool = new ReadFileTool(mockConfigWithLimit);
+
+      const largeFilePath = path.join(tempRootDir, 'large.log');
+      await fsp.writeFile(largeFilePath, Buffer.alloc(15 * 1024 * 1024)); // 15MB
+
+      const params: ReadFileToolParams = { absolute_path: largeFilePath };
+
+      // ACT
+      const result = await limitedTool.execute(params, abortSignal);
+
+      // ASSERT
+      expect(result.llmContent).toContain(
+        "Error: File 'large.log' (15.0 MB) exceeds the configured max_file_size of 10MB.",
+      );
+    });
+
+    it('should succeed when the file is smaller than the max_file_size', async () => {
+      // ARRANGE
+      const mockConfigWithLimit = {
+        ...tool['config'],
+        max_file_size: '10MB',
+      } as unknown as Config;
+      const limitedTool = new ReadFileTool(mockConfigWithLimit);
+
+      const smallFilePath = path.join(tempRootDir, 'small.txt');
+      const fileContent = 'This file is small enough.';
+      await fsp.writeFile(smallFilePath, fileContent, 'utf-8');
+
+      const params: ReadFileToolParams = { absolute_path: smallFilePath };
+
+      // ACT
+      const result = await limitedTool.execute(params, abortSignal);
+
+      // ASSERT
+      expect(result.llmContent).toBe(fileContent);
+    });
+
+    it('should still allow reading a slice of a large file using offset/limit', async () => {
+      // ARRANGE
+      const mockConfigWithLimit = {
+        ...tool['config'],
+        max_file_size: '1MB', // A very small limit
+      } as unknown as Config;
+      const limitedTool = new ReadFileTool(mockConfigWithLimit);
+
+      const largeFilePath = path.join(tempRootDir, 'very_large.log');
+      const line = 'This is a line of text.\n';
+      await fsp.writeFile(largeFilePath, line.repeat(100000)); // Approx 2MB
+
+      const params: ReadFileToolParams = {
+        absolute_path: largeFilePath,
+        offset: 5,
+        limit: 2,
+      };
+
+      // ACT
+      const result = await limitedTool.execute(params, abortSignal);
+
+      // ASSERT
+      expect(result.llmContent).toContain('This is a line of text.');
+      expect(result.llmContent).toContain('[File content truncated');
+    });
+  });
+  // end of code-trinity
 });
 
 // start of code-trinity
