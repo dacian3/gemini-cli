@@ -4,6 +4,7 @@ ARG SANDBOX_NAME="gemini-cli-sandbox"
 ARG CLI_VERSION_ARG
 ENV SANDBOX="$SANDBOX_NAME"
 ENV CLI_VERSION=$CLI_VERSION_ARG
+ENV BUILD_SANDBOX=1
 
 # install minimal set of packages, then clean up
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -25,6 +26,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
   psmisc \
   lsof \
   socat \
+  neovim \
+  tree \
   ca-certificates \
   && apt-get clean \
   && rm -rf /var/lib/apt/lists/*
