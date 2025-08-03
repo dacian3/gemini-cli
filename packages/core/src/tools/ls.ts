@@ -171,6 +171,23 @@ export class LSTool extends BaseTool<LSToolParams, ToolResult> {
     return shortenPath(relativePath);
   }
 
+  // start of code addition-trinity
+  /**
+   * Formats a byte count into a human-readable string (KB, MB, GB).
+   * @param bytes the number of bytes
+   * @param decimals the number of decimal places to use
+   * @returns a formatted string
+   */
+  private formatBytes(bytes: number, decimals = 1): string {
+    if (bytes === 0) return '0 bytes';
+    const k = 1024;
+    const dm = decimals < 0 ? 0 : decimals;
+    const sizes = ['Bytes', 'KB', 'MB', 'GB', 'TB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return parseFloat((bytes / Math.pow(k, i)).toFixed(dm)) + ' ' + sizes[i];
+  }
+  // end of code addition-trinity
+
   // Helper for consistent error formatting
   private errorResult(llmContent: string, returnDisplay: string): ToolResult {
     return {
@@ -295,9 +312,21 @@ export class LSTool extends BaseTool<LSToolParams, ToolResult> {
       });
 
       // Create formatted content for LLM
+
+      // start of code-trinity
       const directoryContent = entries
-        .map((entry) => `${entry.isDirectory ? '[DIR] ' : ''}${entry.name}`)
+        .map((entry) => {
+          if (entry.isDirectory) {
+            // Keep directory format simple and aligned
+            return `[DIR]        ${entry.name}`;
+          } else {
+            // Format files with a right-aligned size
+            const size = this.formatBytes(entry.size);
+            return `${size.padStart(12)} ${entry.name}`;
+          }
+        })
         .join('\n');
+      // end of code-trinity
 
       let resultMessage = `Directory listing for ${params.path}:\n${directoryContent}`;
       const ignoredMessages = [];

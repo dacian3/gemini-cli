@@ -52,6 +52,27 @@ import { IdeClient } from '../ide/ide-client.js';
 export type { MCPOAuthConfig };
 import { WorkspaceContext } from '../utils/workspaceContext.js';
 
+// start of code-trinity
+export function parseSize(sizeStr: string): number {
+  const units: { [key: string]: number } = {
+    bytes: 1,
+    kb: 1024,
+    mb: 1024 * 1024,
+    gb: 1024 * 1024 * 1024,
+  };
+  const match = sizeStr
+    .toLowerCase()
+    .match(/^(\d+(\.\d+)?)\s*(bytes|kb|mb|gb)$/);
+  if (!match) {
+    // Return a default or throw an error. Let's throw for clarity.
+    throw new Error(`Invalid size string format: ${sizeStr}`);
+  }
+  const value = parseFloat(match[1]);
+  const unit = match[3];
+  return value * units[unit];
+}
+// end of code-trinity
+
 export enum ApprovalMode {
   DEFAULT = 'default',
   AUTO_EDIT = 'autoEdit',
@@ -187,6 +208,10 @@ export interface ConfigParameters {
   ideModeFeature?: boolean;
   ideMode?: boolean;
   ideClient: IdeClient;
+  // start of code-trinity
+  max_file_size?: string;
+  max_total_read_size?: string;
+  // end of code-trinity
 }
 
 export class Config {
@@ -220,6 +245,12 @@ export class Config {
     respectGeminiIgnore: boolean;
     enableRecursiveFileSearch: boolean;
   };
+
+  // start of code-trinity
+  private readonly max_file_size: string;
+  private readonly max_total_read_size: string;
+  // end of code-trinity
+
   private fileDiscoveryService: FileDiscoveryService | null = null;
   private gitService: GitService | undefined = undefined;
   private readonly checkpointing: boolean;
@@ -286,6 +317,12 @@ export class Config {
       enableRecursiveFileSearch:
         params.fileFiltering?.enableRecursiveFileSearch ?? true,
     };
+
+    // start of code-trinity
+    this.max_file_size = params.max_file_size ?? '5MB';
+    this.max_total_read_size = params.max_total_read_size ?? '5MB';
+    // end of code-trinity
+
     this.checkpointing = params.checkpointing ?? false;
     this.proxy = params.proxy;
     this.cwd = params.cwd ?? process.cwd();

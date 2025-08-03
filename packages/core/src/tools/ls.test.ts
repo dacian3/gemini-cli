@@ -144,6 +144,42 @@ describe('LSTool', () => {
       expect(result.returnDisplay).toBe('Listed 3 item(s).');
     });
 
+    // start of code-trinity
+    it('should display human-readable, right-aligned file sizes', async () => {
+      // ARRANGE
+      const testPath = '/home/user/project/src';
+      const mockFiles = ['subfolder', 'small.txt', 'large.log'];
+
+      vi.mocked(fs.readdirSync).mockReturnValue(mockFiles as any);
+      vi.mocked(fs.statSync).mockImplementation((filePath: any) => {
+        const fileName = path.basename(filePath as string);
+        if (fileName === 'subfolder') {
+          return { isDirectory: () => true, size: 0 } as fs.Stats;
+        }
+        if (fileName === 'small.txt') {
+          return { isDirectory: () => false, size: 1536 } as fs.Stats; // 1.5 KB
+        }
+        if (fileName === 'large.log') {
+          return { isDirectory: () => false, size: 12582912 } as fs.Stats; // 12.0 MB
+        }
+        // Default mock for the parent directory itself
+        return { isDirectory: () => true } as fs.Stats;
+      });
+
+      // ACT
+      const result = await lsTool.execute(
+        { path: testPath },
+        new AbortController().signal,
+      );
+
+      // ASSERT
+      const output = result.llmContent;
+      expect(output).toContain('[DIR]        subfolder');
+      expect(output).toContain('       1.5 KB small.txt');
+      expect(output).toContain('      12.0 MB large.log');
+    });
+    // end of code-trinity
+
     it('should list files from secondary workspace directory', async () => {
       const testPath = '/home/user/other-project/lib';
       const mockFiles = ['module1.js', 'module2.js'];

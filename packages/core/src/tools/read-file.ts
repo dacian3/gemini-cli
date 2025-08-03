@@ -4,6 +4,10 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+// start of code-trinity
+import * as fs from 'fs';
+//end of code-trinity
+
 import path from 'path';
 import { SchemaValidator } from '../utils/schemaValidator.js';
 import { makeRelative, shortenPath } from '../utils/paths.js';
@@ -14,6 +18,11 @@ import {
   getSpecificMimeType,
 } from '../utils/fileUtils.js';
 import { Config } from '../config/config.js';
+
+// start of code-trinity
+import { parseSize } from '../config/config.js';
+// end of code-trinity
+
 import {
   recordFileOperationMetric,
   FileOperation,
@@ -121,6 +130,20 @@ export class ReadFileTool extends BaseTool<ReadFileToolParams, ToolResult> {
     return shortenPath(relativePath);
   }
 
+  // start of code-trinity
+  /**
+   *  Formats a byte count into a human readable string (KB, MB, GB).
+   */
+  private formatBytes(bytes: number, decimals = 1): string {
+    if (bytes === 0) return '0 Bytes';
+    const k = 1024;
+    const dm = decimals < 0 ? 0 : decimals;
+    const sizes = ['Bytes', 'KB', 'MB', 'GB', 'TB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return parseFloat((bytes / Math.pow(k, i)).toFixed(dm)) + ' ' + sizes[i];
+  }
+  // end of code-trinity
+
   toolLocations(params: ReadFileToolParams): ToolLocation[] {
     return [{ path: params.absolute_path, line: params.offset }];
   }
@@ -136,6 +159,31 @@ export class ReadFileTool extends BaseTool<ReadFileToolParams, ToolResult> {
         returnDisplay: validationError,
       };
     }
+
+    // start of code-trinity
+    // do not check size if user is asking for a specific slice.
+    if (!params.offset && typeof params.limit === 'undefined') {
+      try {
+        const maxFileSize = parseSize(this.config.max_file_size);
+        const stats = fs.statSync(params.absolute_path);
+        if (stats.size > maxFileSize) {
+          const fileSizeStr = this.formatBytes(stats.size);
+          const maxFileSizeStr = this.config.max_file_size;
+          const errorMsg = `Error: File '${path.basename(params.absolute_path)}' (${fileSizeStr}) exceeds the configured max_file_size of ${maxFileSizeStr}.`;
+          return {
+            llmContent: errorMsg,
+            returnDisplay: errorMsg,
+          };
+        }
+      } catch (e) {
+        const errorMsg = `Error checking file size: ${e.message}`;
+        return {
+          llmContent: errorMsg,
+          returnDisplay: errorMsg,
+        };
+      }
+    }
+    // end of code-trinity
 
     const result = await processSingleFileContent(
       params.absolute_path,

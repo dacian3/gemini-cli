@@ -54,9 +54,7 @@ const rootDirectoryCheck: WarningCheck = {
 };
 
 // All warning checks
-const WARNING_CHECKS: readonly WarningCheck[] = [
-  homeDirectoryCheck,
-];
+const WARNING_CHECKS: readonly WarningCheck[] = [homeDirectoryCheck];
 
 export async function getUserStartupWarnings(
   workspaceRoot: string,

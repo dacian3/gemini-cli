@@ -155,7 +155,6 @@ function buildImage(imageName, dockerfile) {
     writeFileSync(argv.outputFile, finalImageName);
   }
 
-
   writeFileSync('final_image_uri.txt', finalImageName);
 }
 

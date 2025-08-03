@@ -198,6 +198,76 @@ describe('ReadManyFilesTool', () => {
       fs.writeFileSync(fullPath, data);
     };
 
+    // start of code-trinity
+    describe('with file size limits', () => {
+      it('should skip individual files that exceed max_file_size', async () => {
+        // ARRANGE
+        const mockConfigWithLimit = {
+          ...tool['config'], // Inherit base config
+          max_file_size: '5MB',
+          max_total_read_size: '50MB',
+        } as unknown as Config;
+        const limitedTool = new ReadManyFilesTool(mockConfigWithLimit);
+
+        // Use the existing test helper to create files
+        createFile('small.txt', 'small file content');
+        createFile('large.log', Buffer.alloc(10 * 1024 * 1024)); // 10MB file
+
+        const params = { paths: ['*'] };
+
+        // ACT
+        const result = await limitedTool.execute(
+          params,
+          new AbortController().signal,
+        );
+
+        // ASSERT
+        const content = result.llmContent as string[];
+        const expectedSmallFilePath = path.join(tempRootDir, 'small.txt');
+
+        // Check that the small file was read
+        expect(content.some((c) => c.includes('small file content'))).toBe(
+          true,
+        );
+        expect(content.some((c) => c.includes(expectedSmallFilePath))).toBe(
+          true,
+        );
+
+        // Check that the large file was skipped and noted
+        expect(result.returnDisplay).toContain('Skipped 1 item(s)');
+        expect(result.returnDisplay).toContain('large.log');
+        expect(result.returnDisplay).toContain('Exceeds 5MB limit');
+      });
+
+      it('should return an error if the cumulative size exceeds max_total_read_size', async () => {
+        // ARRANGE
+        const mockConfigWithLimit = {
+          ...tool['config'],
+          max_file_size: '20MB',
+          max_total_read_size: '30MB',
+        } as unknown as Config;
+        const limitedTool = new ReadManyFilesTool(mockConfigWithLimit);
+
+        // Create three 15MB files. Individually they are OK, but their total is 45MB.
+        createFile('file1.dat', Buffer.alloc(15 * 1024 * 1024));
+        createFile('file2.dat', Buffer.alloc(15 * 1024 * 1024));
+        createFile('file3.dat', Buffer.alloc(15 * 1024 * 1024));
+
+        const params = { paths: ['*.dat'] };
+
+        // ACT
+        const result = await limitedTool.execute(
+          params,
+          new AbortController().signal,
+        );
+
+        // ASSERT
+        const expectedError = `Error: Total size of 3 files (45.0 MB) exceeds the configured max_total_read_size of 30MB.`;
+        expect(result.llmContent).toBe(expectedError);
+      });
+    });
+    // end of code-trinity
+
     it('should read a single specified file', async () => {
       createFile('file1.txt', 'Content of file1');
       const params = { paths: ['file1.txt'] };

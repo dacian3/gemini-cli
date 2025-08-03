@@ -4,6 +4,11 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+// start of code-trinity
+import * as fs from 'fs';
+import { parseSize } from '../config/config.js';
+// end of code=trinity
+
 import { BaseTool, Icon, ToolResult } from './tools.js';
 import { SchemaValidator } from '../utils/schemaValidator.js';
 import { getErrorMessage } from '../utils/errors.js';
@@ -251,6 +256,17 @@ Use this tool when the user's query implies needing the content of several files
     return `Will attempt to read and concatenate files ${pathDesc}. ${excludeDesc}. File encoding: ${DEFAULT_ENCODING}. Separator: "${DEFAULT_OUTPUT_SEPARATOR_FORMAT.replace('{filePath}', 'path/to/file.ext')}".`;
   }
 
+  // start of code-trinity
+  private formatBytes(bytes: number, decimals = 1): string {
+    if (bytes === 0) return '0 Bytes';
+    const k = 1024;
+    const dm = decimals < 0 ? 0 : decimals;
+    const sizes = ['Bytes', 'KB', 'MB', 'GB', 'TB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return parseFloat((bytes / Math.pow(k, i)).toFixed(dm)) + ' ' + sizes[i];
+  }
+  // end of code-trinity
+
   async execute(
     params: ReadManyFilesParams,
     signal: AbortSignal,
@@ -301,230 +317,113 @@ Use this tool when the user's query implies needing the content of several files
       };
     }
 
+    // start of code-trinity
     try {
-      const allEntries = new Set<string>();
-      const workspaceDirs = this.config.getWorkspaceContext().getDirectories();
+      const foundFiles = await glob(searchPatterns, {
+        cwd: this.config.getTargetDir(),
+        ignore: effectiveExcludes,
+        nodir: true,
+        dot: true,
+        absolute: true,
+        nocase: true,
+        signal,
+      });
 
-      for (const dir of workspaceDirs) {
-        const entriesInDir = await glob(
-          searchPatterns.map((p) => p.replace(/\\/g, '/')),
-          {
-            cwd: dir,
-            ignore: effectiveExcludes,
-            nodir: true,
-            dot: true,
-            absolute: true,
-            nocase: true,
-            signal,
-          },
-        );
-        for (const entry of entriesInDir) {
-          allEntries.add(entry);
-        }
-      }
-      const entries = Array.from(allEntries);
+      const fileDiscovery = this.config.getFileService();
+      const finalFilteredEntries = fileDiscovery
+        .filterFiles(
+          foundFiles.map((p) => path.relative(this.config.getTargetDir(), p)),
+          fileFilteringOptions,
+        )
+        .map((p) => path.resolve(this.config.getTargetDir(), p));
 
-      const gitFilteredEntries = fileFilteringOptions.respectGitIgnore
-        ? fileDiscovery
-            .filterFiles(
-              entries.map((p) => path.relative(this.config.getTargetDir(), p)),
-              {
-                respectGitIgnore: true,
-                respectGeminiIgnore: false,
-              },
-            )
-            .map((p) => path.resolve(this.config.getTargetDir(), p))
-        : entries;
+      const maxFileSize = parseSize(this.config.max_file_size);
+      const maxTotalReadSize = parseSize(this.config.max_total_read_size);
+      let runningTotalSize = 0;
+      const skippedFiles: { path: string; reason: string }[] = [];
+      const filesToRead: string[] = [];
 
-      // Apply gemini ignore filtering if enabled
-      const finalFilteredEntries = fileFilteringOptions.respectGeminiIgnore
-        ? fileDiscovery
-            .filterFiles(
-              gitFilteredEntries.map((p) =>
-                path.relative(this.config.getTargetDir(), p),
-              ),
-              {
-                respectGitIgnore: false,
-                respectGeminiIgnore: true,
-              },
-            )
-            .map((p) => path.resolve(this.config.getTargetDir(), p))
-        : gitFilteredEntries;
-
-      let gitIgnoredCount = 0;
-      let geminiIgnoredCount = 0;
-
-      for (const absoluteFilePath of entries) {
-        // Security check: ensure the glob library didn't return something outside the workspace.
-        if (
-          !this.config
-            .getWorkspaceContext()
-            .isPathWithinWorkspace(absoluteFilePath)
-        ) {
+      // Step 1: Validate files and calculate total size
+      for (const file of finalFilteredEntries) {
+        try {
+          const stats = fs.statSync(file);
+          if (stats.size > maxFileSize) {
+            skippedFiles.push({
+              path: file,
+              reason: `Exceeds ${this.config.max_file_size} limit`,
+            });
+            continue;
+          }
+          filesToRead.push(file);
+          runningTotalSize += stats.size;
+        } catch (e) {
           skippedFiles.push({
-            path: absoluteFilePath,
-            reason: `Security: Glob library returned path outside workspace. Path: ${absoluteFilePath}`,
+            path: file,
+            reason: `Could not access file stats: ${getErrorMessage(e)}`,
           });
-          continue;
         }
-
-        // Check if this file was filtered out by git ignore
-        if (
-          fileFilteringOptions.respectGitIgnore &&
-          !gitFilteredEntries.includes(absoluteFilePath)
-        ) {
-          gitIgnoredCount++;
-          continue;
-        }
-
-        // Check if this file was filtered out by gemini ignore
-        if (
-          fileFilteringOptions.respectGeminiIgnore &&
-          !finalFilteredEntries.includes(absoluteFilePath)
-        ) {
-          geminiIgnoredCount++;
-          continue;
-        }
-
-        filesToConsider.add(absoluteFilePath);
       }
 
-      // Add info about git-ignored files if any were filtered
-      if (gitIgnoredCount > 0) {
-        skippedFiles.push({
-          path: `${gitIgnoredCount} file(s)`,
-          reason: 'git ignored',
-        });
+      // Step 2: Cumulative Check - abort if total is too large
+      if (runningTotalSize > maxTotalReadSize) {
+        const totalSizeStr = this.formatBytes(runningTotalSize);
+        const maxTotalStr = this.config.max_total_read_size;
+        const errorMsg = `Error: Total size of ${filesToRead.length} files (${totalSizeStr}) exceeds the configured max_total_read_size of ${maxTotalStr}.`;
+        return { llmContent: errorMsg, returnDisplay: errorMsg };
       }
 
-      // Add info about gemini-ignored files if any were filtered
-      if (geminiIgnoredCount > 0) {
-        skippedFiles.push({
-          path: `${geminiIgnoredCount} file(s)`,
-          reason: 'gemini ignored',
-        });
-      }
-    } catch (error) {
-      return {
-        llmContent: `Error during file search: ${getErrorMessage(error)}`,
-        returnDisplay: `## File Search Error\n\nAn error occurred while searching for files:\n\`\`\`\n${getErrorMessage(error)}\n\`\`\``,
-      };
-    }
-
-    const sortedFiles = Array.from(filesToConsider).sort();
-
-    for (const filePath of sortedFiles) {
-      const relativePathForDisplay = path
-        .relative(this.config.getTargetDir(), filePath)
-        .replace(/\\/g, '/');
-
-      const fileType = await detectFileType(filePath);
-
-      if (fileType === 'image' || fileType === 'pdf') {
-        const fileExtension = path.extname(filePath).toLowerCase();
-        const fileNameWithoutExtension = path.basename(filePath, fileExtension);
-        const requestedExplicitly = inputPatterns.some(
-          (pattern: string) =>
-            pattern.toLowerCase().includes(fileExtension) ||
-            pattern.includes(fileNameWithoutExtension),
+      // Step 3: Read the content of the validated files
+      const contentParts: PartListUnion = [];
+      for (const filePath of filesToRead) {
+        const fileReadResult = await processSingleFileContent(
+          filePath,
+          this.config.getTargetDir(),
         );
-
-        if (!requestedExplicitly) {
+        if (fileReadResult.error) {
           skippedFiles.push({
-            path: relativePathForDisplay,
-            reason:
-              'asset file (image/pdf) was not explicitly requested by name or extension',
+            path: filePath,
+            reason: `Read error: ${fileReadResult.error}`,
           });
-          continue;
-        }
-      }
-
-      // Use processSingleFileContent for all file types now
-      const fileReadResult = await processSingleFileContent(
-        filePath,
-        this.config.getTargetDir(),
-      );
-
-      if (fileReadResult.error) {
-        skippedFiles.push({
-          path: relativePathForDisplay,
-          reason: `Read error: ${fileReadResult.error}`,
-        });
-      } else {
-        if (typeof fileReadResult.llmContent === 'string') {
+        } else {
           const separator = DEFAULT_OUTPUT_SEPARATOR_FORMAT.replace(
             '{filePath}',
             filePath,
           );
-          contentParts.push(`${separator}\n\n${fileReadResult.llmContent}\n\n`);
-        } else {
-          contentParts.push(fileReadResult.llmContent); // This is a Part for image/pdf
+          if (typeof fileReadResult.llmContent === 'string') {
+            contentParts.push(
+              `${separator}\n\n${fileReadResult.llmContent}\n\n`,
+            );
+          } else {
+            contentParts.push(separator, fileReadResult.llmContent);
+          }
         }
-        processedFilesRelativePaths.push(relativePathForDisplay);
-        const lines =
-          typeof fileReadResult.llmContent === 'string'
-            ? fileReadResult.llmContent.split('\n').length
-            : undefined;
-        const mimetype = getSpecificMimeType(filePath);
-        recordFileOperationMetric(
-          this.config,
-          FileOperation.READ,
-          lines,
-          mimetype,
-          path.extname(filePath),
-        );
       }
-    }
 
-    let displayMessage = `### ReadManyFiles Result (Target Dir: \`${this.config.getTargetDir()}\`)\n\n`;
-    if (processedFilesRelativePaths.length > 0) {
-      displayMessage += `Successfully read and concatenated content from **${processedFilesRelativePaths.length} file(s)**.\n`;
-      if (processedFilesRelativePaths.length <= 10) {
-        displayMessage += `\n**Processed Files:**\n`;
-        processedFilesRelativePaths.forEach(
-          (p) => (displayMessage += `- \`${p}\`\n`),
-        );
-      } else {
-        displayMessage += `\n**Processed Files (first 10 shown):**\n`;
-        processedFilesRelativePaths
-          .slice(0, 10)
-          .forEach((p) => (displayMessage += `- \`${p}\`\n`));
-        displayMessage += `- ...and ${processedFilesRelativePaths.length - 10} more.\n`;
-      }
-    }
+      let llmContentOutput: PartListUnion | string = contentParts;
 
-    if (skippedFiles.length > 0) {
-      if (processedFilesRelativePaths.length === 0) {
-        displayMessage += `No files were read and concatenated based on the criteria.\n`;
+      // Step 4: Append a note about skipped files to the final result
+      if (skippedFiles.length > 0) {
+        const skippedNote = `\n\n[NOTE: Skipped ${skippedFiles.length} file(s). Example: '${path.basename(skippedFiles[0].path)}' (${skippedFiles[0].reason})]`;
+        if (typeof llmContentOutput === 'string') {
+          llmContentOutput += skippedNote;
+        } else {
+          llmContentOutput.push(skippedNote);
+        }
       }
-      if (skippedFiles.length <= 5) {
-        displayMessage += `\n**Skipped ${skippedFiles.length} item(s):**\n`;
-      } else {
-        displayMessage += `\n**Skipped ${skippedFiles.length} item(s) (first 5 shown):**\n`;
-      }
-      skippedFiles
-        .slice(0, 5)
-        .forEach(
-          (f) => (displayMessage += `- \`${f.path}\` (Reason: ${f.reason})\n`),
-        );
-      if (skippedFiles.length > 5) {
-        displayMessage += `- ...and ${skippedFiles.length - 5} more.\n`;
-      }
-    } else if (
-      processedFilesRelativePaths.length === 0 &&
-      skippedFiles.length === 0
-    ) {
-      displayMessage += `No files were read and concatenated based on the criteria.\n`;
-    }
 
-    if (contentParts.length === 0) {
-      contentParts.push(
-        'No files matching the criteria were found or all were skipped.',
-      );
+      if (contentParts.length === 0) {
+        llmContentOutput =
+          'No files matching the criteria were found or all valid files were skipped.';
+      }
+
+      return {
+        llmContent: llmContentOutput,
+        returnDisplay: `Read content from ${filesToRead.length} file(s). Skipped ${skippedFiles.length}.`,
+      };
+    } catch (error) {
+      const errorMsg = `Error during file search: ${getErrorMessage(error)}`;
+      return { llmContent: errorMsg, returnDisplay: errorMsg };
     }
-    return {
-      llmContent: contentParts,
-      returnDisplay: displayMessage.trim(),
-    };
+    // end of code replacement
   }
 }
